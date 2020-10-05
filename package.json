@@ -13,8 +13,10 @@
   },
   "main": "background.js",
   "dependencies": {
+    "@elastic/elasticsearch": "^7.9.1",
     "buefy": "^0.9.3",
     "core-js": "^3.6.5",
+    "mg-api-js": "^2.0.1",
     "vue": "^2.6.11"
   },
   "devDependencies": {
