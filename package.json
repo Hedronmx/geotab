@@ -14,10 +14,21 @@
   "main": "background.js",
   "dependencies": {
     "@elastic/elasticsearch": "^7.9.1",
+    "axios": "^0.20.0",
     "buefy": "^0.9.3",
+    "convert-array-to-csv": "^2.0.0",
     "core-js": "^3.6.5",
+    "flat": "^5.0.2",
     "mg-api-js": "^2.0.1",
-    "vue": "^2.6.11"
+    "mg-api-node": "^1.3.0",
+    "moment": "^2.29.1",
+    "promise": "^8.1.0",
+    "vue": "^2.6.11",
+    "vue-csv-downloader": "^1.0.3",
+    "vue-json-csv": "^1.2.11",
+    "vue-json-to-csv": "^1.1.8",
+    "vue-material-design-icons": "^4.9.0",
+    "vue-nested-json-to-csv": "^0.0.23"
   },
   "devDependencies": {
     "@vue/cli-plugin-babel": "~4.5.0",
