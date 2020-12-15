@@ -106,22 +106,53 @@
       JsonCSV,
     },
     methods: {
-      addDoc(myIndex, myType, myContent) {
-        return elasticClient
-          .search({
-            index: myIndex,
-            type: myType,
-            body: myContent,
-          })
-          .then(
-            function(resp) {
-              var hits = resp.hits.hits;
-              return hits;
+      addToElastic(_index, _type, _body) {
+        elasticClient.index(
+          {
+            index: _index,
+            type: _type,
+            body: {
+              Name: _body,
             },
-            function(err) {
-              console.trace(err.message);
+          },
+          function(error, response) {
+            if (error) {
+              console.log(error);
+            } else {
+              console.log(response);
             }
-          );
+          }
+        );
+      },
+
+      checkElasticStatus() {
+        elasticClient.ping(
+          {
+            requestTimeout: 30000,
+          },
+          function(error) {
+            if (error) {
+              console.error("Elasticsearch cluster is down!");
+            } else {
+              console.log("Everything is ok");
+            }
+          }
+        );
+      },
+
+      createIndex(_index) {
+        elasticClient.indices.create(
+          {
+            index: _index,
+          },
+          function(error, response, status) {
+            if (error) {
+              console.log(error);
+            } else {
+              console.log("created a new index", status);
+            }
+          }
+        );
       },
 
       pivot(arr) {
@@ -198,10 +229,10 @@
             },
           })
           .then((response) => {
-            this.databases = response.data.result;
-            console.log("Own Database: ", this.databases);
-            // this.getCurrentDeviceDatabases();
-            this.addDoc("Databases", "Database", this.databases[10]);
+            var json = JSON.stringify(response.data.result);
+            this.databases = JSON.parse(json);
+            console.log("Own Database: ", this.databases[0]);
+            this.addToElastic("databases", "database", this.databases[0]);
             this.loading = true;
           })
           .catch((error) => {
@@ -229,6 +260,7 @@
           .then((response) => {
             this.deviceDatabases = response.data.result;
             console.log("Device Databases: ", this.deviceDatabases);
+            this.addToElastic("databases", "database", this.deviceDatabases[0]);
             //this.getDeviceBillings ()
           })
           .catch((error) => {
