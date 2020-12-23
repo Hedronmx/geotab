@@ -1,5 +1,5 @@
 <template>
-  <section>
+  <section style="padding: 12px">
     <div class="container">
       <div class="columns">
         <div class="column">
@@ -11,6 +11,15 @@
             <b-datepicker
               v-model="fromDate"
               placeholder="From Date..."
+              icon="calendar-today"
+              trap-focus
+            >
+            </b-datepicker>
+          </b-field>
+          <b-field label="Select To Date">
+            <b-datepicker
+              v-model="toDate"
+              placeholder="To Date..."
               icon="calendar-today"
               trap-focus
             >
@@ -31,14 +40,9 @@
       </b-field>
     </div>
     <div class="container pt-4">
-      <b-button type="is-info" @click="getOwnDatabase" expanded
+      <b-button type="is-info" @click="getDevicePlans" expanded
         >Get Data</b-button
       >
-      <div class="pt-4">
-        <JsonCSV :data="reportData" v-if="csvReady" :labels="labels">
-          <b-button type="is-success" expanded>Download Data</b-button>
-        </JsonCSV>
-      </div>
       <div class="pt-4">
         <b-progress
           type="is-info"
@@ -90,8 +94,6 @@
   const axios = require("axios");
   const ref = "https://myadminapi.geotab.com/v2/MyAdminApi.ashx";
   const refGeotab = "https://my967.geotab.com/apiv1";
-  const Promise = require("promise");
-  import JsonCSV from "vue-json-csv";
   import moment from "moment";
   var elasticsearch = require("elasticsearch");
 
@@ -102,18 +104,13 @@
 
   export default {
     name: "Main",
-    components: {
-      JsonCSV,
-    },
     methods: {
       addToElastic(_index, _type, _body) {
         elasticClient.index(
           {
             index: _index,
             type: _type,
-            body: {
-              Name: _body,
-            },
+            body: _body,
           },
           function(error, response) {
             if (error) {
@@ -125,16 +122,20 @@
         );
       },
 
-      checkElasticStatus() {
-        elasticClient.ping(
+      addToElasticSingle(_index, _type, _body) {
+        elasticClient.index(
           {
-            requestTimeout: 30000,
+            index: _index,
+            type: _type,
+            body: {
+              name: _body,
+            },
           },
-          function(error) {
+          function(error, response) {
             if (error) {
-              console.error("Elasticsearch cluster is down!");
+              console.log(error);
             } else {
-              console.log("Everything is ok");
+              console.log(response);
             }
           }
         );
@@ -155,58 +156,6 @@
         );
       },
 
-      pivot(arr) {
-        var mp = new Map();
-
-        function setValue(a, path, val) {
-          if (Object(val) !== val) {
-            var pathStr = path.join(".");
-            var i = (mp.has(pathStr) ? mp : mp.set(pathStr, mp.size)).get(
-              pathStr
-            );
-            a[i] = val;
-          } else {
-            for (var key in val) {
-              setValue(a, key == "0" ? path : path.concat(key), val[key]);
-            }
-          }
-          return a;
-        }
-
-        var result = arr.map((obj) => setValue([], [], obj));
-        return [[...mp.keys()], ...result];
-      },
-
-      toCsv(arr) {
-        return arr
-          .map((row) =>
-            row
-              .map((val) => (isNaN(val) ? JSON.stringify(val) : +val))
-              .join(",")
-          )
-          .join("\n");
-      },
-
-      chunkArray(myArray) {
-        var index = 0;
-        var arrayLength = myArray.length;
-        var tempArray = [];
-
-        for (
-          index = 0;
-          index < arrayLength;
-          index += parseInt(this.deviceLimit)
-        ) {
-          var myChunk = myArray.slice(
-            index,
-            index + parseInt(this.deviceLimit)
-          );
-          tempArray.push(myChunk);
-        }
-
-        return tempArray;
-      },
-
       getMoreDevices(number) {
         this.devicesId = [];
         var self = this;
@@ -219,6 +168,7 @@
       getOwnDatabase() {
         this.loading = true;
         this.status = "Getting own database...";
+        this.createIndex("databases");
         this.progress += this.parts;
         axios
           .post(ref, {
@@ -229,10 +179,14 @@
             },
           })
           .then((response) => {
-            var json = JSON.stringify(response.data.result);
-            this.databases = JSON.parse(json);
-            console.log("Own Database: ", this.databases[0]);
-            this.addToElastic("databases", "database", this.databases[0]);
+            this.databases = response.data.result;
+            for (var i = 0; i < this.databases.length; i++) {
+              this.addToElasticSingle(
+                "databases",
+                "database",
+                this.databases[i]
+              );
+            }
             this.loading = true;
           })
           .catch((error) => {
@@ -247,6 +201,7 @@
       getCurrentDeviceDatabases() {
         this.loading = true;
         this.status = "Getting current device databases...";
+        this.createIndex("devicedatabases");
         this.progress += this.parts;
         axios
           .post(ref, {
@@ -259,9 +214,13 @@
           })
           .then((response) => {
             this.deviceDatabases = response.data.result;
-            console.log("Device Databases: ", this.deviceDatabases);
-            this.addToElastic("databases", "database", this.deviceDatabases[0]);
-            //this.getDeviceBillings ()
+            for (var i = 0; i < this.deviceDatabases.length; i++) {
+              this.addToElastic(
+                "devicedatabases",
+                "device",
+                this.deviceDatabases[i]
+              );
+            }
           })
           .catch((error) => {
             console.log(error);
@@ -275,40 +234,44 @@
       getDeviceBillings() {
         this.status = "Getting current device billings...";
         this.progress += this.parts;
-        var i;
-        var promises = [];
-        for (i = 1; i < 13; i++) {
-          promises.push(
-            axios
-              .post(ref, {
-                method: "GetDeviceContractTransactions",
-                params: {
-                  apiKey: this.apiKey,
-                  sessionId: this.sessionId,
-                  forAccount: this.account,
-                  monthFilter: i,
-                  yearFilter: 2019,
-                },
-              })
-              .then((response) => {
-                this.deviceBillings.push(response.data.result);
-              })
-              .catch((error) => {
-                console.log(error);
-                this.loading = false;
-                this.error = true;
-                this.success = false;
-                this.errorCode = error;
-              })
-          );
+        this.createIndex("devicebillings");
+        for (var i = 1; i < 13; i++) {
+          axios
+            .post(ref, {
+              method: "GetDeviceContractTransactions",
+              params: {
+                apiKey: this.apiKey,
+                sessionId: this.sessionId,
+                forAccount: this.account,
+                monthFilter: i,
+                yearFilter: 2019,
+              },
+            })
+            .then((response) => {
+              this.deviceBillings.push(response.data.result);
+              for (var i = 0; i < response.data.result.length; i++) {
+                this.addToElastic(
+                  "devicebillings",
+                  "billing",
+                  response.data.result[i]
+                );
+              }
+            })
+            .catch((error) => {
+              console.log(error);
+              this.loading = false;
+              this.error = true;
+              this.success = false;
+              this.errorCode = error;
+            });
         }
-        Promise.all(promises).then(() => this.getInstallLogs());
       },
 
       getInstallLogs() {
         console.log("Device Billings: ", this.deviceBillings);
         this.status = "Getting install logs...";
         this.progress += this.parts;
+        this.createIndex("installlogs");
         axios
           .post(ref, {
             method: "GetInstallLogs",
@@ -321,8 +284,13 @@
           })
           .then((response) => {
             this.installLogs = response.data.result;
-            console.log("Install Logs: ", this.installLogs);
-            this.getDevicePlans();
+            for (var i = 0; i < this.installLogs.length; i++) {
+              this.addToElastic(
+                "installlogs",
+                "installlog",
+                this.installLogs[i]
+              );
+            }
           })
           .catch((error) => {
             console.log(error);
@@ -336,6 +304,7 @@
       getDevicePlans() {
         this.status = "Getting device plans...";
         this.progress += this.parts;
+        this.createIndex("deviceplans");
         axios
           .post(ref, {
             method: "GetDevicePlans",
@@ -346,8 +315,13 @@
           })
           .then((response) => {
             this.devicePlans = response.data.result;
-            console.log("Device Plans: ", this.devicePlans);
-            this.getSupportTicket();
+            for (var i = 0; i < this.devicePlans.length; i++) {
+              this.addToElastic(
+                "deviceplans",
+                "deviceplan",
+                this.devicePlans[i]
+              );
+            }
           })
           .catch((error) => {
             console.log(error);
@@ -1149,6 +1123,19 @@
         .catch((error) => {
           console.log(error);
         });
+
+      elasticClient.ping(
+        {
+          requestTimeout: 32000,
+        },
+        function(error) {
+          if (error) {
+            console.error("Elasticsearch cluster is down!");
+          } else {
+            console.log("Connected to Elasticsearch");
+          }
+        }
+      );
 
       axios
         .post(refGeotab, {
