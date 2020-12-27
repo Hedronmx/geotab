@@ -40,8 +40,15 @@
       </b-field>
     </div>
     <div class="container pt-4">
-      <b-button type="is-info" @click="getDevicePlans" expanded
-        >Get Data</b-button
+      <b-button type="is-info" @click="getGeotabDevice" expanded
+        >Get Devices</b-button
+      >
+      <b-button
+        style="margin: 10px"
+        type="is-info"
+        @click="getReportData"
+        expanded
+        >Get Report Data</b-button
       >
       <div class="pt-4">
         <b-progress
@@ -94,7 +101,6 @@
   const axios = require("axios");
   const ref = "https://myadminapi.geotab.com/v2/MyAdminApi.ashx";
   const refGeotab = "https://my967.geotab.com/apiv1";
-  import moment from "moment";
   var elasticsearch = require("elasticsearch");
 
   var elasticClient = new elasticsearch.Client({
@@ -105,39 +111,64 @@
   export default {
     name: "Main",
     methods: {
+      chunkArray(myArray) {
+        var index = 0;
+        var arrayLength = myArray.length;
+        var tempArray = [];
+
+        for (
+          index = 0;
+          index < arrayLength;
+          index += parseInt(this.deviceLimit)
+        ) {
+          var myChunk = myArray.slice(
+            index,
+            index + parseInt(this.deviceLimit)
+          );
+          tempArray.push(myChunk);
+        }
+
+        return tempArray;
+      },
       addToElastic(_index, _type, _body) {
-        elasticClient.index(
-          {
-            index: _index,
-            type: _type,
-            body: _body,
-          },
-          function(error, response) {
-            if (error) {
-              console.log(error);
-            } else {
-              console.log(response);
-            }
-          }
+        this.allPromises.push(
+          setTimeout(function() {
+            elasticClient.index(
+              {
+                index: _index,
+                type: _type,
+                body: _body,
+              },
+              function(error, response) {
+                if (error) {
+                  console.log(error);
+                } else {
+                  console.log(response);
+                }
+              }
+            );
+          }, 2000)
         );
       },
 
       addToElasticSingle(_index, _type, _body) {
-        elasticClient.index(
-          {
-            index: _index,
-            type: _type,
-            body: {
-              name: _body,
+        this.allPromises.push(
+          elasticClient.index(
+            {
+              index: _index,
+              type: _type,
+              body: {
+                name: _body,
+              },
             },
-          },
-          function(error, response) {
-            if (error) {
-              console.log(error);
-            } else {
-              console.log(response);
+            function(error, response) {
+              if (error) {
+                console.log(error);
+              } else {
+                console.log(response);
+              }
             }
-          }
+          )
         );
       },
 
@@ -176,6 +207,8 @@
             params: {
               apiKey: this.apiKey,
               sessionId: this.sessionId,
+              userEmail: "",
+              fromDate: "",
             },
           })
           .then((response) => {
@@ -187,7 +220,10 @@
                 this.databases[i]
               );
             }
-            this.loading = true;
+            Promise.all([this.allPromises]).then(() => {
+              this.loading = false;
+              this.allPromises = [];
+            });
           })
           .catch((error) => {
             console.log(error);
@@ -221,6 +257,10 @@
                 this.deviceDatabases[i]
               );
             }
+            Promise.all([this.allPromises]).then(() => {
+              this.loading = false;
+              this.allPromises = [];
+            });
           })
           .catch((error) => {
             console.log(error);
@@ -451,13 +491,13 @@
         this.status = "Getting Geotab device...";
         this.loading = true;
         this.progress += this.parts;
+        this.createIndex("geotabdevices");
         // eslint-disable-next-line no-unused-vars
         api.authenticate((err, data) => {
           api.call(
             "Get",
             {
               typeName: "Device",
-              resultsLimit: "20",
             },
             (err, data) => {
               if (err) {
@@ -469,11 +509,18 @@
                 return;
               }
               this.devices = data;
-              console.log("Devices: ", this.devices);
-              // this.getGeotabDiagnostics ()
-
-              this.chunks = this.chunkArray(this.devices);
-              this.getReportData();
+              for (var i = 0; i < this.devices.length; i++) {
+                this.addToElastic(
+                  "geotabdevices",
+                  "geotabdevice",
+                  this.devices[i]
+                );
+              }
+              Promise.all([this.allPromises]).then(() => {
+                this.loading = false;
+                this.allPromises = [];
+                this.chunks = this.chunkArray(this.devices);
+              });
             }
           );
         });
@@ -569,62 +616,37 @@
 
       getReportData() {
         this.status = "Getting report data...";
-        this.loopReportData();
-      },
-
-      async loopReportData() {
-        var difference = moment(this.toDate).diff(
-          moment(this.fromDate),
-          "months",
-          true
-        );
-        difference = Math.floor(difference);
-        for (var counter = 0; counter < this.chunks.length; counter++) {
-          this.getMoreDevices(counter);
-          for (var counterTwo = 1; counterTwo <= difference; counterTwo++) {
-            // eslint-disable-next-line no-unused-vars
-            let promise = await axios
-              .post(refGeotab, {
-                method: "GetReportData",
-                params: {
-                  argument: {
-                    fromUtc: this.fromDate.toISOString(),
-                    toUtc: moment(this.fromDate)
-                      .add(counterTwo, "month")
-                      .toISOString(),
-                    reportArgumentType: "RouteComparisonDetailReport",
-                    devices: this.devicesId,
-                  },
-                  credentials: {
-                    database: this.databaseName,
-                    sessionId: this.sessionIdGeo,
-                    userName: this.username,
-                  },
-                },
-              })
-              .then((response) => {
-                var converted = this.pivot(response.data.result);
-                if (converted.length > 1) {
-                  this.labels = Object.assign({}, converted[0]);
-                  converted.shift();
-                  this.reportData.push(JSON.parse(JSON.stringify(converted)));
-                  console.log(response);
-                }
-              })
-              .catch((error) => {
-                console.log(error);
-                this.loading = false;
-                this.error = true;
-                this.success = false;
-                this.errorCode = error;
-              });
-          }
-        }
-        console.log("Report Datas: ", this.reportData);
-        console.log("Labels: ", this.labels);
-        this.csvReady = true;
-        this.success = true;
-        this.loading = false;
+        this.getMoreDevices(0);
+        this.createIndex("reportdata");
+        console.log(this.devicesId);
+        axios
+          .post(refGeotab, {
+            method: "GetReportData",
+            params: {
+              argument: {
+                fromUtc: this.fromDate.toISOString(),
+                toUtc: this.toDate.toString(),
+                reportArgumentType: "RouteComparisonDetailReport",
+                devices: this.devicesId,
+              },
+              credentials: {
+                database: this.databaseName,
+                sessionId: this.sessionIdGeo,
+                userName: this.username,
+              },
+            },
+          })
+          .then((response) => {
+            console.log(response);
+            this.loading = false;
+          })
+          .catch((error) => {
+            console.log(error);
+            this.loading = false;
+            this.error = true;
+            this.success = false;
+            this.errorCode = error;
+          });
       },
 
       getDeviceStatusInfo() {
@@ -1104,6 +1126,7 @@
         shipmentLogs: [],
         dutyStatusLogs: [],
         driverRegulation: [],
+        allPromises: [],
       };
     },
 
