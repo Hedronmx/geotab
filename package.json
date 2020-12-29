@@ -29,7 +29,8 @@
     "vue-json-csv": "^1.2.11",
     "vue-json-to-csv": "^1.1.8",
     "vue-material-design-icons": "^4.9.0",
-    "vue-nested-json-to-csv": "^0.0.23"
+    "vue-nested-json-to-csv": "^0.0.23",
+    "vue-router": "^3.4.9"
   },
   "devDependencies": {
     "@vue/cli-plugin-babel": "~4.5.0",
