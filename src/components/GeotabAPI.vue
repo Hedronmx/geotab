@@ -3,6 +3,7 @@
     <div class="container">
       <div class="columns">
         <div class="column">
+          <b-loading :is-full-page="true" v-model="loading" :can-cancel="false"></b-loading>
           <b-field label="Method Name">
             <b-autocomplete
               rounded
@@ -15,6 +16,16 @@
             >
               <template slot="empty">No results found</template>
             </b-autocomplete>
+          </b-field>
+          <b-field label="Database Name">
+            <b-input placeholder="Type the database name" v-model="database"></b-input>
+          </b-field>
+          <b-field label="Device Limit">
+            <b-numberinput
+              type="is-light"
+              placeholder="Type the amount of devices to proccess"
+              v-model="deviceLimit"
+            ></b-numberinput>
           </b-field>
           <b-field label="From Date">
             <b-datepicker
@@ -128,28 +139,25 @@
         return tempArray;
       },
       addToElastic() {
-        for (var i = 0; i < this.data.length; i++) {
-          elasticClient
-            .index({
-              index: this.indexName.toLowerCase(),
-              type: this.typeName.toLowerCase(),
-              body: this.data[i],
-            })
-            .then((response) => {
-              console.log(response);
-              this.progress = this.progress + 1;
-              this.status = "Uploading " + i + " of " + this.data.length;
-            })
-            .catch((error) => {
-              console.log(error);
-              this.error = true;
-              this.errorCode = error;
-            });
-        }
-        this.success = true;
-        this.successMessage = "Data uploaded successfully";
-        this.loadingElastic = false;
-        this.buttonMessage = "No data to upload";
+        elasticClient
+          .bulk({
+            maxRetries: 5,
+            index: this.indexName.toLowerCase(),
+            type: this.typeName.toLowerCase(),
+            body: this.data,
+          })
+          .then((response) => {
+            console.log(response);
+            this.success = true;
+            this.successMessage = "Data uploaded successfully";
+            this.loadingElastic = false;
+            this.buttonMessage = "No data to upload";
+          })
+          .catch((error) => {
+            console.log(error);
+            this.error = true;
+            this.errorCode = error;
+          });
       },
 
       createIndex() {
@@ -164,11 +172,7 @@
             console.log(reponse);
             this.infoMessage = "Created " + this.indexName + " index. Uploading content";
             this.info = true;
-            if (this.methodName == "GetOwnDatabases") {
-              this.addToElasticSingle();
-            } else {
-              this.addToElastic();
-            }
+            this.addToElastic();
             this.progress = 1;
           })
           .catch((error) => {
@@ -186,37 +190,162 @@
 
       getData() {
         this.data = [];
-        api.authenticate((err, data) => {
-          api.call(
-            "Get",
-            {
-              typeName: this.methodName,
-              search: {
-                name: data.userName,
-                fromUtc: this.fromDate.toISOString(),
-                toUtc: this.toDate.toISOString(),
-                fromDate: this.fromDate.toISOString(),
-                toDate: this.toDate.toISOString(),
-                reportArgumentType: "RouteComparisonDetailReport",
-                deviceSearch: this.deviceId[5],
-                defects: {},
-                userSearch: this.users,
-              },
-            },
-            (err, data) => {
-              if (err) {
-                console.log("Error", err);
-                this.loading = false;
-                this.error = true;
-                this.success = false;
-                this.errorCode = err;
-                return;
-              }
-              this.data = data;
-              console.log("Data: ", data);
+        this.loadingData = true;
+        this.success = false;
+        this.error = false;
+        this.info = false;
+        this.chunks = this.chunkArray(this.deviceId);
+        var promises = [];
+        if (this.methodName == "GetReportData") {
+          for (var i = 0; i < this.chunks.length; i++) {
+            promises.push(
+              axios
+                .post(refGeotab, {
+                  method: "GetReportData",
+                  params: {
+                    argument: {
+                      fromUtc: this.fromDate.toISOString(),
+                      toUtc: this.toDate.toISOString(),
+                      reportArgumentType: "RouteComparisonDetailReport",
+                      devices: this.chunks[i],
+                    },
+                    credentials: {
+                      database: this.database,
+                      sessionId: this.sessionIdGeo,
+                      userName: this.username,
+                    },
+                  },
+                })
+                .then((response) => {
+                  if (response.data.result.length > 0) {
+                    this.results.push(response.data.result);
+                    console.log(response.data.result);
+                  }
+                })
+                .catch((error) => {
+                  console.log(error);
+                  this.loading = false;
+                  this.error = true;
+                  this.success = false;
+                  this.errorCode = error;
+                })
+            );
+          }
+          Promise.all(promises).then(() => {
+            for (var i = 0; i < this.results.length; i++) {
+              this.data = this.data.concat(this.results[i]);
             }
-          );
-        });
+            promises = [];
+            this.results = [];
+            console.log(this.data);
+            this.loadingData = false;
+            this.success = true;
+            this.successMessage =
+              "Got data succesfully from method " +
+              this.methodName +
+              ", got " +
+              this.data.length +
+              " items";
+          });
+        } else if (
+          this.methodName == "Device" ||
+          this.methodName == "Group" ||
+          this.methodName == "User" ||
+          this.methodName == "Device" ||
+          this.methodName == "Trailer" ||
+          this.methodName == "Rule" ||
+          this.methodName == "Diagnostic"
+        ) {
+          api.authenticate((err, data) => {
+            api.call(
+              "Get",
+              {
+                typeName: this.methodName,
+                search: {
+                  name: data.userName,
+                },
+              },
+              (err, data) => {
+                if (err) {
+                  console.log("Error", err);
+                  this.loadingData = false;
+                  this.error = true;
+                  this.success = false;
+                  this.errorCode = err;
+                  return;
+                }
+                if (data.length > 0) {
+                  this.data = data;
+                  console.log(this.data);
+                  this.loadingData = false;
+                  this.success = true;
+                  this.successMessage =
+                    "Got data succesfully from method " +
+                    this.methodName +
+                    ", got " +
+                    this.data.length +
+                    " items";
+                }
+              }
+            );
+          });
+        } else {
+          api.authenticate((err, data) => {
+            for (var i = 0; i < this.chunks.length; i++) {
+              promises.push(
+                api.call(
+                  "Get",
+                  {
+                    typeName: this.methodName,
+                    search: {
+                      name: data.userName,
+                      fromUtc: this.fromDate.toISOString(),
+                      toUtc: this.toDate.toISOString(),
+                      fromDate: this.fromDate.toISOString(),
+                      toDate: this.toDate.toISOString(),
+                      deviceSearch: {
+                        id: this.chunks[i].id,
+                      },
+                      userSearch: {
+                        id: this.users[i],
+                      },
+                    },
+                  },
+                  (err, data) => {
+                    if (err) {
+                      console.log("Error", err);
+                      this.loadingData = false;
+                      this.error = true;
+                      this.success = false;
+                      this.errorCode = err;
+                      return;
+                    }
+                    if (data.length > 0) {
+                      this.results.push(data);
+                      console.log(data);
+                    }
+                  }
+                )
+              );
+            }
+            Promise.all(promises).then(() => {
+              promises = [];
+              for (var i = 0; i < this.results.length; i++) {
+                this.data = this.data.concat(this.results[i]);
+              }
+              console.log(this.data);
+              this.results = [];
+              this.loadingData = false;
+              this.success = true;
+              this.successMessage =
+                "Got data succesfully from method " +
+                this.methodName +
+                ", got " +
+                this.data.length +
+                " items";
+            });
+          });
+        }
       },
     },
     computed: {
@@ -268,7 +397,8 @@
         toDate: new Date(),
         password: "105Norma105!",
         username: "mirandao@rushenterprises.com",
-        loading: false,
+        database: "ccswb",
+        loading: true,
         loadingData: false,
         loadingElastic: false,
         success: false,
@@ -286,6 +416,7 @@
         status: "",
         progress: 0,
         parts: 100 / 2,
+        deviceLimit: 10,
         methodName: "",
         indexName: "",
         typeName: "",
@@ -293,6 +424,8 @@
         devices: [],
         allUsers: [],
         users: [],
+        chunks: [],
+        results: [],
       };
     },
 
@@ -326,12 +459,12 @@
               console.log("Error", err);
             }
             this.devices = data;
-            data.forEach((element) => {
-              var id = element.id;
+            for (var i = 0; i < this.devices.length; i++) {
               var item = {};
-              item["id"] = id;
-              this.deviceId.push(item);
-            });
+              item["id"] = this.devices[i].id;
+              this.deviceId[i] = item;
+            }
+            console.log("Device ids: ", this.deviceId);
           }
         );
       });
@@ -350,13 +483,11 @@
               console.log("Error", err);
             }
             this.allUsers = data;
-            data.forEach((element) => {
-              var id = element.id;
-              var item = {};
-              item["id"] = id;
-              this.users.push(item);
-            });
-            console.log(this.users);
+            for (var i = 0; i < this.allUsers.length; i++) {
+              this.users[i] = this.allUsers[i].id;
+            }
+            console.log("User ids: ", this.users);
+            this.loading = false;
           }
         );
       });

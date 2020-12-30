@@ -115,56 +115,69 @@
     name: "Adminsdk",
     methods: {
       addToElastic() {
+        var promises = [];
         for (var i = 0; i < this.data.length; i++) {
-          elasticClient
-            .index({
-              index: this.indexName.toLowerCase(),
-              type: this.typeName.toLowerCase(),
-              body: this.data[i],
-            })
-            .then((response) => {
-              console.log(response);
-              this.progress = this.progress + 1;
-              this.status = "Uploading " + i + " of " + this.data.length;
-            })
-            .catch((error) => {
-              console.log(error);
-              this.error = true;
-              this.errorCode = error;
-            });
+          promises.push(
+            elasticClient
+              .index({
+                index: this.indexName.toLowerCase(),
+                type: this.typeName.toLowerCase(),
+                body: this.data[i],
+              })
+              .then((response) => {
+                console.log(response);
+                this.progress = this.progress + 1;
+                this.status = "Uploading " + i + " of " + this.data.length;
+              })
+              .catch((error) => {
+                console.log(error);
+                this.error = true;
+                this.errorCode = error;
+              })
+          );
         }
-        this.success = true;
-        this.successMessage = "Data uploaded successfully";
-        this.loadingElastic = false;
-        this.buttonMessage = "No data to upload";
+        Promise.all(promises).then(() => {
+          this.success = true;
+          this.successMessage = "Data uploaded successfully";
+          this.loadingElastic = false;
+          this.buttonMessage = "No data to upload";
+          this.data = [];
+        });
       },
 
       addToElasticSingle() {
+        var promises = [];
         for (var i = 0; i < this.data.length; i++) {
-          elasticClient
-            .index({
-              index: this.indexName.toLowerCase(),
-              type: this.typeName.toLowerCase(),
-              body: {
-                name: this.data[i],
-              },
-            })
-            .then((response) => {
-              console.log(response);
-              this.progress = this.progress + 1;
-              this.status = "Uploading " + i + " of " + this.data.length;
-            })
-            .catch((error) => {
-              console.log(error);
-              this.error = true;
-              this.errorCode = error;
-            });
+          promises.push(
+            elasticClient
+              .index({
+                index: this.indexName.toLowerCase(),
+                type: this.typeName.toLowerCase(),
+                body: {
+                  name: this.data[i],
+                },
+              })
+              .then((response) => {
+                console.log(response);
+                this.progress = this.progress + 1;
+                this.status = "Uploading " + i + " of " + this.data.length;
+              })
+              .catch((error) => {
+                console.log(error);
+                this.error = true;
+                this.errorCode = error;
+              })
+          );
         }
-        this.success = true;
-        this.successMessage = "Data uploaded successfully";
-        this.loadingElastic = false;
-        this.data = [];
-        this.buttonMessage = "No data to upload";
+
+        Promise.all(promises).then(() => {
+          this.success = true;
+          this.successMessage = "Data uploaded successfully";
+          this.loadingElastic = false;
+          this.buttonMessage = "No data to upload";
+          this.data = [];
+          promises = [];
+        });
       },
 
       createIndex() {
@@ -200,6 +213,9 @@
       },
       getData() {
         this.loadingData = true;
+        this.success = false;
+        this.error = false;
+        this.info = false;
         this.data = [];
         axios
           .post(ref, {
