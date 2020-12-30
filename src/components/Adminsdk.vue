@@ -133,6 +133,9 @@
                 console.log(error);
                 this.error = true;
                 this.errorCode = error;
+                this.loadingElastic = false;
+                this.buttonMessage = "No data to upload";
+                this.data = [];
               })
           );
         }
@@ -166,6 +169,9 @@
                 console.log(error);
                 this.error = true;
                 this.errorCode = error;
+                this.loadingElastic = false;
+                this.buttonMessage = "No data to upload";
+                this.data = [];
               })
           );
         }
@@ -208,6 +214,9 @@
             } else {
               this.error = true;
               this.errorCode = error.message;
+              this.loadingElastic = false;
+              this.buttonMessage = "No data to upload";
+              this.data = [];
             }
           });
       },

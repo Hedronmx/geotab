@@ -139,12 +139,17 @@
         return tempArray;
       },
       addToElastic() {
+        const body = this.data.flatMap((doc) => [
+          { index: { _index: this.indexName.toLowerCase() } },
+          doc,
+        ]);
+        console.log(body);
         elasticClient
           .bulk({
             maxRetries: 5,
             index: this.indexName.toLowerCase(),
             type: this.typeName.toLowerCase(),
-            body: this.data,
+            body: body,
           })
           .then((response) => {
             console.log(response);
@@ -157,6 +162,9 @@
             console.log(error);
             this.error = true;
             this.errorCode = error;
+            this.loadingElastic = false;
+            this.buttonMessage = "No data to upload";
+            this.data = [];
           });
       },
 
@@ -184,6 +192,9 @@
             } else {
               this.error = true;
               this.errorCode = error.message;
+              this.loadingElastic = false;
+              this.buttonMessage = "No data to upload";
+              this.data = [];
             }
           });
       },
@@ -224,10 +235,12 @@
                 })
                 .catch((error) => {
                   console.log(error);
-                  this.loading = false;
+                  this.loadingData = false;
                   this.error = true;
                   this.success = false;
                   this.errorCode = error;
+                  this.buttonMessage = "No data to upload";
+                  this.data = [];
                 })
             );
           }
@@ -239,6 +252,7 @@
             this.results = [];
             console.log(this.data);
             this.loadingData = false;
+            this.buttonMessage = "Upload data to ElasticSearch";
             this.success = true;
             this.successMessage =
               "Got data succesfully from method " +
@@ -272,6 +286,8 @@
                   this.error = true;
                   this.success = false;
                   this.errorCode = err;
+                  this.buttonMessage = "No data to upload";
+                  this.data = [];
                   return;
                 }
                 if (data.length > 0) {
@@ -279,6 +295,7 @@
                   console.log(this.data);
                   this.loadingData = false;
                   this.success = true;
+                  this.buttonMessage = "Upload data to ElasticSearch";
                   this.successMessage =
                     "Got data succesfully from method " +
                     this.methodName +
@@ -289,7 +306,19 @@
               }
             );
           });
-        } else {
+        } else if (
+          this.methodName == "DeviceStatusInfo" ||
+          this.methodName == "TrailerAttachment" ||
+          this.methodName == "DVIRLog" ||
+          this.methodName == "FuelTaxDetail" ||
+          this.methodName == "LogRecord" ||
+          this.methodName == "Zone" ||
+          this.methodName == "Route" ||
+          this.methodName == "Audit" ||
+          this.methodName == "TextMessage" ||
+          this.methodName == "ShipmentLog" ||
+          this.methodName == "ExceptionEvent"
+        ) {
           api.authenticate((err, data) => {
             for (var i = 0; i < this.chunks.length; i++) {
               promises.push(
@@ -303,12 +332,7 @@
                       toUtc: this.toDate.toISOString(),
                       fromDate: this.fromDate.toISOString(),
                       toDate: this.toDate.toISOString(),
-                      deviceSearch: {
-                        id: this.chunks[i].id,
-                      },
-                      userSearch: {
-                        id: this.users[i],
-                      },
+                      devices: this.chunks[i],
                     },
                   },
                   (err, data) => {
@@ -318,6 +342,8 @@
                       this.error = true;
                       this.success = false;
                       this.errorCode = err;
+                      this.buttonMessage = "No data to upload";
+                      this.data = [];
                       return;
                     }
                     if (data.length > 0) {
@@ -337,6 +363,118 @@
               this.results = [];
               this.loadingData = false;
               this.success = true;
+              this.buttonMessage = "Upload data to ElasticSearch";
+              this.successMessage =
+                "Got data succesfully from method " +
+                this.methodName +
+                ", got " +
+                this.data.length +
+                " items";
+            });
+          });
+        } else if (this.methodName == "DutyStatusLog") {
+          api.authenticate((err, data) => {
+            for (var i = 0; i < this.chunks.length; i++) {
+              promises.push(
+                api.call(
+                  "Get",
+                  {
+                    typeName: this.methodName,
+                    search: {
+                      name: data.userName,
+                      fromDate: this.fromDate.toISOString(),
+                      toDate: this.toDate.toISOString(),
+                      deviceSearch: {
+                        id: this.chunks[i].id,
+                      },
+                      userSearch: {
+                        id: this.users[i],
+                      },
+                    },
+                  },
+                  (err, data) => {
+                    if (err) {
+                      console.log("Error", err);
+                      this.loadingData = false;
+                      this.error = true;
+                      this.success = false;
+                      this.errorCode = err;
+                      this.buttonMessage = "No data to upload";
+                      this.data = [];
+                      return;
+                    }
+                    if (data.length > 0) {
+                      this.results.push(data);
+                      console.log(data);
+                    }
+                  }
+                )
+              );
+            }
+            Promise.all(promises).then(() => {
+              promises = [];
+              for (var i = 0; i < this.results.length; i++) {
+                this.data = this.data.concat(this.results[i]);
+              }
+              console.log(this.data);
+              this.results = [];
+              this.loadingData = false;
+              this.success = true;
+              this.buttonMessage = "Upload data to ElasticSearch";
+              this.successMessage =
+                "Got data succesfully from method " +
+                this.methodName +
+                ", got " +
+                this.data.length +
+                " items";
+            });
+          });
+        } else if (this.methodName == "DriverRegulation") {
+          this.chunks = this.chunkArray(this.users);
+          console.log(this.chunks[0][1]);
+          api.authenticate((err, data) => {
+            for (var i = 0; i < this.chunks.length; i++) {
+              promises.push(
+                api.call(
+                  "Get",
+                  {
+                    typeName: this.methodName,
+                    search: {
+                      name: data.userName,
+                      fromDate: this.fromDate.toISOString(),
+                      toDate: this.toDate.toISOString(),
+                      user: this.chunks[i],
+                    },
+                  },
+                  (err, data) => {
+                    if (err) {
+                      console.log("Error", err);
+                      this.loadingData = false;
+                      this.error = true;
+                      this.success = false;
+                      this.errorCode = err;
+                      this.buttonMessage = "No data to upload";
+                      this.data = [];
+                      return;
+                    }
+                    if (data.length > 0) {
+                      this.results.push(data);
+                      console.log(data);
+                    }
+                  }
+                )
+              );
+            }
+            Promise.all(promises).then(() => {
+              promises = [];
+              for (var i = 0; i < this.results.length; i++) {
+                this.data = this.data.concat(this.results[i]);
+              }
+              console.log(this.data);
+              this.results = [];
+              this.loadingData = false;
+              this.success = true;
+              this.buttonMessage = "Upload data to ElasticSearch";
               this.successMessage =
                 "Got data succesfully from method " +
                 this.methodName +
@@ -374,6 +512,7 @@
       return {
         methods: [
           "ExceptionEvent",
+          "DriverRegulation",
           "DutyStatusLog",
           "ShipmentLog",
           "TextMessage",
@@ -484,7 +623,9 @@
             }
             this.allUsers = data;
             for (var i = 0; i < this.allUsers.length; i++) {
-              this.users[i] = this.allUsers[i].id;
+              var item = {};
+              item["id"] = this.allUsers[i].id;
+              this.users[i] = item;
             }
             console.log("User ids: ", this.users);
             this.loading = false;
